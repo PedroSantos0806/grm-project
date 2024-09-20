@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -25,7 +26,7 @@ function authMiddleware(req, res, next) {
     const authHeader = authMiddleware = req.headers['authorizarion'];
     const token = authHeader && authHeader.split('')[1];
 
-    if (token == null) return res.sendStatus(401);
+    if (!token) return res.sendStatus(401);
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) return res.sendStatus(403);
@@ -35,6 +36,26 @@ function authMiddleware(req, res, next) {
 }
 
 // mexendo na tabela ALUNOS
+
+const { validate } = require('joi');
+
+const alunoSchema = Joi.object({
+    nome: Joi.string().required(),
+    email: Joi.string(),
+    dataNascimento: Joi.date().required(),
+    altura: Joi.string(),
+    peso: Joi.string(),
+    rg: Joi.string().required,
+    cpf: Joi.string(),
+    nomeResponsavel: Joi.string(),
+    endereco: Joi.string(),
+    bairro: Joi.string(),
+    cidade: Joi.string(),
+    telefone: Joi.string().required(),
+    situacao: Joi.string().required(),
+    bolsita: Joi.boolean().required(),
+    percentualBolsa: Joi.number().when('bolsita', { is: true, then: Joi.required()})
+});
 
 app.get('/alunos', async (req, res) => {
     try {
@@ -47,6 +68,18 @@ app.get('/alunos', async (req, res) => {
 });
 
 app.post('/alunos', async (req, res) => {
+    if (req.user.tipo !== 'admin'){ 
+        return res.status(403).json({message: 'Acesso negado'});
+    }
+
+    const { error } = alunoSchema.validate(req.body);
+    if (error) {
+        return res.status(400).json({ error: error.details[0].message });
+    }
+
+    if (!nome || !rg || !telefone || !situacao || bolsista || percentualBolsa) {
+        return res.status(400).json({message: ' Campos obrigatorios não preenchidos.'});
+    }
     try {
         const [result] = await pool.query('INSERT INTO alunos SET ?', [req.body]);
         res.json({message: 'Aluno cadastrado com sucesso!', id: result.insertId });
@@ -217,3 +250,63 @@ app.get('/alunos/:alunoId/cfa', authMiddleware, async (req, res) => {
         res.status(500).send('Erro aos buscar informações adicionais')
     }
 })
+
+// Sistema de verificação de login
+
+app.post('/login', async (req, res) => {
+    const { usuario, senha } = req.body;
+
+    try {
+        const [rows] = await pool.query('SELECT * FROM logins WHERE usuario = ?', [usuario]);
+        const user = rows[0];
+
+        if (!user) {
+            return res.status(401).json({ message: 'Usuario não encontrado'});
+        }
+
+        if (user.senha !== senha) {
+            return res.status(401).json({ message: 'Sneha incorreta!'});
+        }
+
+        if (user.tipo_usuario === 'admin') {
+            const token = jwt.sign({ userId: user.id, tipo: 'admin'}, process.env.JWT_SECRET, { expiresIn: '1h' });
+            res.json({ token });
+
+        } else if (user.tipo_usuario === 'responsavel') {
+            const token = jwt.sign({ userId: user.id, tipo: 'responsavel', alunoId: user.aluno_id }, process.env.JWT_SECRET, { expiresIn: '1h'});
+            res.json({ token });
+
+        } else {
+            return res.status(400).json({ message: 'Tipo de usuario inválido!'});
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Erro ao realizar login');
+    }
+});
+
+
+// Sistema para criação de senha
+
+app.post('/usuarios/criar-senha', async (req, res) => {
+    const { usuario, novaSenha } = req.body;
+
+    try{
+        const [rows] = await pool.query('SELECT * FROM logins WHERE usuario = ? AND tipo_usuario = "admin"', [usuario]);
+        const user = rows[0];
+
+        if (!user) {
+            return res.status(401).json({message: 'Usuário não encontrado ou não é Admin'});
+        }
+
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(novaSenha, saltRounds);
+
+        await pool.query('UPDATE logins SET senha = ? WHERE usuario = ?', [hashedPassword, usuario]);
+        
+        res.json({ message: 'Senha atualizada com sucesso!'});
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Erro ao atualizar senha')
+    }
+});
