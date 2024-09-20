@@ -38,24 +38,42 @@ function authMiddleware(req, res, next) {
 // mexendo na tabela ALUNOS
 
 const { validate } = require('joi');
+const Joi = require('joi');
+const cpf_cnpj = require('cpf_cnpj');
+const pool = require('./database');
 
 const alunoSchema = Joi.object({
     nome: Joi.string().required(),
-    email: Joi.string(),
-    dataNascimento: Joi.date().required(),
-    altura: Joi.string(),
-    peso: Joi.string(),
-    rg: Joi.string().required,
-    cpf: Joi.string(),
+    email: Joi.string().email(),
+    dataNascimento: Joi.date().format('DD-MM-YYYY').required(),
+    altura: Joi.string().precision(2).allow(null,''),
+    peso: Joi.string().precision(2).allow(null,''),
+    rg: Joi.string().custom((value, helpers) => {
+        if (!cpf_cnpj.isValidRG(value)) {
+            return helpers.message('RG Inválido');
+        }
+        return value;
+    }).required(),
+    cpf: Joi.string().custom((valuem, helpers) => {
+        if (!cpf_cnpj.isValidCPF(value)) {
+            return helpers.message('CPF Inválido');
+        }
+        return value;
+    }).required(),
     nomeResponsavel: Joi.string(),
-    endereco: Joi.string(),
-    bairro: Joi.string(),
-    cidade: Joi.string(),
+    endereco: Joi.string().allow(null,''),
+    bairro: Joi.string().allow(null,''),
+    cidade: Joi.string().allow(null,''),
     telefone: Joi.string().required(),
     situacao: Joi.string().required(),
     bolsita: Joi.boolean().required(),
     percentualBolsa: Joi.number().when('bolsita', { is: true, then: Joi.required()})
 });
+
+function handleError(error, res) {
+    console.error(error);
+    res.status(500).send('Erro ao processar requisição!');
+}
 
 app.get('/alunos', async (req, res) => {
     try {
@@ -77,15 +95,16 @@ app.post('/alunos', async (req, res) => {
         return res.status(400).json({ error: error.details[0].message });
     }
 
-    if (!nome || !rg || !telefone || !situacao || bolsista || percentualBolsa) {
-        return res.status(400).json({message: ' Campos obrigatorios não preenchidos.'});
-    }
     try {
-        const [result] = await pool.query('INSERT INTO alunos SET ?', [req.body]);
-        res.json({message: 'Aluno cadastrado com sucesso!', id: result.insertId });
+        const [existingPlayer] = await pool.query('SELECT * FROM alunos WHERE cpf = ? OR rg = ?', [req.body.cpf, req.body.rg]);
+        if (existingPlayer.length > 0) {
+            return res.status(409).json({ message: 'CPF ou RG já cadastrado.'});
+        }
+        
+        await pool.query('INSERT INTO alunos SET ?', [req.body]);
+        res.json({ message : ' Aluno cadastrado com sucesso.'});
     } catch (error) {
-        console.error(error);
-        res.status(500).send('Erro ao cadastrar aluno');
+        handleError(error, res);
     }
 });
 
@@ -104,7 +123,18 @@ app.get('/alunos/:id', async (req, res) => {
 });
 
 app.put('/alunos/:id', async (req, res) => {
-    const { id } = req.params;
+    if (req.user.tipo !== 'admin'){ 
+        return res.status(403).json({message: 'Acesso negado'});
+    }
+
+    const { error } = alunoSchema.validate(req.body);
+    if (error) {
+        return res.status(400).json({ error: error.details[0].message });
+    }
+
+    if (!nome || !rg || !telefone || !situacao || bolsista || percentualBolsa) {
+        return res.status(400).json({message: ' Campos obrigatorios não preenchidos.'});
+    }
     try {
         const [result] = await pool.query('DELETE FROM alunos WHERE id = ?', [id]);
         if (result.affectedRows === 0) {
