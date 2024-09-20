@@ -159,3 +159,61 @@ app.get('/alunos/:alunoId/pagamentos/pendentes', authMiddleware, async (req, res
         res.status(500).send('Error ao buscar pagamentos pendentes do aluno');
     }
 });
+
+// Mexendo na tabela CFA
+
+app.post('/alunos/:alunoId/cfa', authMiddleware, async (req, res) => {
+    const { alunoId } = req.params;
+    const { posicaoFavorita1, posicaoFavorita2, federado, ...rest } = req.body;
+
+    try{
+        const [aluno] = await pool.query('SELECT * FROM alunos WHERE id = ? AND situacao = "CFA"', [alunoId]);
+        if (!aluno.length) {
+            return res.status(404).json({ message: 'Aluno não encontrado ou não é da categoria CFA '});
+        }
+
+        await pool.query('INSERT INTO informacoes_adicionais_cfa SET ?', {
+            alunoId,
+            posicaoFavorita1,
+            posicaoFavorita2,
+            federado,
+            ...rest
+        });
+
+        res.json({ message: 'Informações adicionais cadastradas com sucesso!'});
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Erro ao cadastrar informações adicionais');
+    }
+});
+
+app.put('/alunos/:alunoId/cfa', authMiddleware, async (req, res) => {
+    const { alunoId } = req.params;
+    const { posicaoFavorita1, posicaoFavorita2, federado, ...rest } = req.body;
+
+    try { 
+        await pool.query('UPDATE infomacoes_adicionais_cfa SET ? WHERE alunoId = ?', [{
+            posicaoFavorita1,
+            posicaoFavorita2,
+            federado,
+            ...rest
+        }, alunoId]);
+
+        res.json({ message: 'Informações adicionadas com sucesso.'});
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Erro ao atualizar informações adicionais');
+    }
+});
+
+app.get('/alunos/:alunoId/cfa', authMiddleware, async (req, res) => {
+    const { alunoId } = req.params;
+
+    try {
+        const [rows] = await pool.query('SELECT * FROM infomacoes_adicionais_cfa WHERE alunoId = ?', [alunoId]);
+        res.json(rows[0]);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Erro aos buscar informações adicionais')
+    }
+})
