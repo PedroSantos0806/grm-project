@@ -1,0 +1,23 @@
+.container {
+    text-align: center;
+    margin-top: 100px;
+    background-color: rgba(255, 255, 255, 0.8);
+}
+
+form {
+    background-color: orange;
+    padding: 20px;
+    border-radius: 5px;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background-image: href="C:\Users\PEdro.santos\Downloads\GRM\GRM\images";
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-blend-mode: multiply;
+}
